@@ -1069,12 +1069,19 @@ export class WineCellarCard extends LitElement {
         ${showGrid
           ? html`
               <div class="cabinets-row">
-                ${this._activeTab === "all"
+                ${(() => {
+                  // Uniform bottle sizing: compute a target cell size so all cabinets
+                  // render bottles at the same diameter regardless of column count.
+                  // Large cabinets (many cols) will naturally shrink to fit the card
+                  // width; small cabinets are explicitly constrained to the same size.
+                  const TARGET_CELL_PX = 56;
+                  return this._activeTab === "all"
                   ? this._cabinets.map(
                       (cab) => html`
                         <cabinet-grid
                           .cabinet=${cab}
                           .wines=${this._getCabinetWines(cab.id)}
+                          .targetCellPx=${TARGET_CELL_PX}
                           @cell-click=${this._onCellClick}
                           @zone-click=${this._onZoneClick}
                           @zone-container-click=${this._onZoneContainerClick}
@@ -1093,12 +1100,14 @@ export class WineCellarCard extends LitElement {
                           <cabinet-grid
                             .cabinet=${cab}
                             .wines=${this._getCabinetWines(cab.id)}
+                            .targetCellPx=${TARGET_CELL_PX}
                             @cell-click=${this._onCellClick}
                             @zone-click=${this._onZoneClick}
                             @zone-container-click=${this._onZoneContainerClick}
                           ></cabinet-grid>
                         `
-                      )}
+                      );
+                })()}
               </div>
               ${this._activeTab === "all" && unassignedWines.length > 0
                 ? html`

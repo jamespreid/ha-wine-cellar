@@ -71,16 +71,33 @@ def _register_frontend_resource(hass: HomeAssistant) -> None:
     async def _async_add_resource(*_args) -> None:
         """Add or update Lovelace resource."""
         try:
+            # Try multiple access paths — the location of the resources collection
+            # has shifted across HA versions. Try each in order until one works.
+            resources = None
+
+            # Path 1: top-level hass.data key (HA < 2024.x)
             resources = hass.data.get("lovelace_resources")
+
+            # Path 2: via the lovelace component's domain data (HA 2024+)
             if resources is None:
-                _LOGGER.debug(
-                    "lovelace_resources not in hass.data, "
-                    "card must be added manually via Settings > Dashboards > Resources: %s",
+                lovelace_data = hass.data.get("lovelace")
+                if lovelace_data is not None:
+                    resources = getattr(lovelace_data, "resources", None)
+
+            # Path 3: via lovelace component's stored resources key
+            if resources is None:
+                from homeassistant.components.lovelace import resources as lv_res_mod
+                resources = getattr(lv_res_mod, "_resources", None)
+
+            if resources is None:
+                _LOGGER.warning(
+                    "Could not find Lovelace resources collection — "
+                    "add the card manually via Settings > Dashboards > Resources: %s",
                     url,
                 )
                 return
 
-            # Check existing resources
+            # Find existing wine cellar resource entry
             existing = None
             for item in resources.async_items():
                 if "/wine_cellar/" in item.get("url", ""):
@@ -88,19 +105,21 @@ def _register_frontend_resource(hass: HomeAssistant) -> None:
                     break
 
             if existing:
-                # Update URL with new version
                 if existing.get("url") != url:
+                    # Include res_type so the update doesn't strip it
                     await resources.async_update_item(
-                        existing["id"], {"url": url}
+                        existing["id"], {"res_type": "module", "url": url}
                     )
-                    _LOGGER.debug("Updated wine cellar frontend resource to %s", url)
+                    _LOGGER.info("Updated wine cellar frontend resource to %s", url)
+                else:
+                    _LOGGER.debug("Wine cellar frontend resource already current: %s", url)
             else:
                 await resources.async_create_item({"res_type": "module", "url": url})
-                _LOGGER.debug("Registered wine cellar frontend resource: %s", url)
+                _LOGGER.info("Registered wine cellar frontend resource: %s", url)
         except Exception as err:
             _LOGGER.warning(
-                "Could not auto-register frontend resource (%s). "
-                "Add it manually via Settings > Dashboards > Resources: %s",
+                "Could not auto-register frontend resource (%s) — "
+                "add it manually via Settings > Dashboards > Resources: %s",
                 err,
                 url,
             )

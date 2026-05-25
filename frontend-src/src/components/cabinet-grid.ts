@@ -7,6 +7,9 @@ import { sharedStyles } from "../styles";
 export class CabinetGrid extends LitElement {
   @property({ attribute: false }) cabinet!: Cabinet;
   @property({ attribute: false }) wines: Wine[] = [];
+  /** Target cell diameter in px. Used to cap small-cabinet bottle sizes so all
+   *  cabinets render bottles at a consistent visual size. Defaults to 64px. */
+  @property({ type: Number }) targetCellPx = 64;
 
   @state() private _dragOverCell: string | null = null;
 
@@ -881,10 +884,18 @@ export class CabinetGrid extends LitElement {
     const { rows, cols } = this.cabinet;
     const storageRows = this._getStorageRowSet();
 
+    // Uniform bottle sizing: use the targetCellPx passed from the parent so that
+    // all cabinets render bottles at the same diameter. Large cabinets naturally
+    // shrink to fit the card width (max-width: 100%); small cabinets are held
+    // to their computed width so they don't stretch their bottles to fill space.
+    const CELL_GAP_PX = 2;   // matches CSS gap: 2px
+    const GRID_PAD_PX = 12;  // matches CSS padding: 6px × 2
+    const targetGridWidth = cols * this.targetCellPx + Math.max(0, cols - 1) * CELL_GAP_PX + GRID_PAD_PX;
+
     return html`
       <div class="cabinet">
         <div class="cabinet-name">${this.cabinet.name}</div>
-        <div class="grid-inner">
+        <div class="grid-inner" style="width: ${targetGridWidth}px; max-width: 100%; margin: 0 auto;">
           ${Array.from({ length: rows }, (_, row) =>
               storageRows.has(row)
                 ? this._renderStorageZone(row)

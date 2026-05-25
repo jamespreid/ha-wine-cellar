@@ -543,6 +543,9 @@ let CabinetGrid = class CabinetGrid extends i {
     constructor() {
         super(...arguments);
         this.wines = [];
+        /** Target cell diameter in px. Used to cap small-cabinet bottle sizes so all
+         *  cabinets render bottles at a consistent visual size. Defaults to 64px. */
+        this.targetCellPx = 64;
         this._dragOverCell = null;
         // --- Long press (mobile move) ---
         this._longPressTimer = null;
@@ -909,10 +912,17 @@ let CabinetGrid = class CabinetGrid extends i {
     render() {
         const { rows, cols } = this.cabinet;
         const storageRows = this._getStorageRowSet();
+        // Uniform bottle sizing: use the targetCellPx passed from the parent so that
+        // all cabinets render bottles at the same diameter. Large cabinets naturally
+        // shrink to fit the card width (max-width: 100%); small cabinets are held
+        // to their computed width so they don't stretch their bottles to fill space.
+        const CELL_GAP_PX = 2; // matches CSS gap: 2px
+        const GRID_PAD_PX = 12; // matches CSS padding: 6px × 2
+        const targetGridWidth = cols * this.targetCellPx + Math.max(0, cols - 1) * CELL_GAP_PX + GRID_PAD_PX;
         return b `
       <div class="cabinet">
         <div class="cabinet-name">${this.cabinet.name}</div>
-        <div class="grid-inner">
+        <div class="grid-inner" style="width: ${targetGridWidth}px; max-width: 100%; margin: 0 auto;">
           ${Array.from({ length: rows }, (_, row) => storageRows.has(row)
             ? this._renderStorageZone(row)
             : this._renderGridRow(row, cols))}
@@ -1418,6 +1428,9 @@ __decorate([
 __decorate([
     n({ attribute: false })
 ], CabinetGrid.prototype, "wines", void 0);
+__decorate([
+    n({ type: Number })
+], CabinetGrid.prototype, "targetCellPx", void 0);
 __decorate([
     r()
 ], CabinetGrid.prototype, "_dragOverCell", void 0);
@@ -8631,32 +8644,41 @@ let WineCellarCard = class WineCellarCard extends i {
         ${showGrid
             ? b `
               <div class="cabinets-row">
-                ${this._activeTab === "all"
-                ? this._cabinets.map((cab) => b `
+                ${(() => {
+                // Uniform bottle sizing: compute a target cell size so all cabinets
+                // render bottles at the same diameter regardless of column count.
+                // Large cabinets (many cols) will naturally shrink to fit the card
+                // width; small cabinets are explicitly constrained to the same size.
+                const TARGET_CELL_PX = 56;
+                return this._activeTab === "all"
+                    ? this._cabinets.map((cab) => b `
                         <cabinet-grid
                           .cabinet=${cab}
                           .wines=${this._getCabinetWines(cab.id)}
+                          .targetCellPx=${TARGET_CELL_PX}
                           @cell-click=${this._onCellClick}
                           @zone-click=${this._onZoneClick}
                           @zone-container-click=${this._onZoneContainerClick}
                           @wine-drop=${this._onWineDrop}
                           @wine-longpress=${(e) => {
-                    this._movingWine = e.detail.wine;
-                    this._showToast(`Tap a cell to move "${e.detail.wine.name}"`);
-                }}
+                        this._movingWine = e.detail.wine;
+                        this._showToast(`Tap a cell to move "${e.detail.wine.name}"`);
+                    }}
                         ></cabinet-grid>
                       `)
-                : this._cabinets
-                    .filter((c) => c.id === this._activeTab)
-                    .map((cab) => b `
+                    : this._cabinets
+                        .filter((c) => c.id === this._activeTab)
+                        .map((cab) => b `
                           <cabinet-grid
                             .cabinet=${cab}
                             .wines=${this._getCabinetWines(cab.id)}
+                            .targetCellPx=${TARGET_CELL_PX}
                             @cell-click=${this._onCellClick}
                             @zone-click=${this._onZoneClick}
                             @zone-container-click=${this._onZoneContainerClick}
                           ></cabinet-grid>
-                        `)}
+                        `);
+            })()}
               </div>
               ${this._activeTab === "all" && unassignedWines.length > 0
                 ? b `
