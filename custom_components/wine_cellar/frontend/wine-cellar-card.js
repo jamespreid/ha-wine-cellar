@@ -1563,6 +1563,7 @@ let WineDetailDialog = class WineDetailDialog extends i {
         this._saving = false;
         this._refreshing = false;
         this._analyzing = false;
+        this._scanningLabel = false;
         this._showRemoveConfirm = false;
         this.hasGemini = false;
     }
@@ -1741,6 +1742,83 @@ let WineDetailDialog = class WineDetailDialog extends i {
             console.error("Failed to save rating/notes", err);
         }
         this._saving = false;
+    }
+    _resizeImageForStorage(base64, maxDim = 400, quality = 0.75) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                const canvas = document.createElement("canvas");
+                canvas.width = Math.round(img.width * scale);
+                canvas.height = Math.round(img.height * scale);
+                canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL("image/jpeg", quality).split(",")[1]);
+            };
+            img.src = `data:image/jpeg;base64,${base64}`;
+        });
+    }
+    _onScanLabel() {
+        const input = this.shadowRoot?.querySelector("#label-photo-input");
+        input?.click();
+    }
+    async _onLabelFileSelected(e) {
+        const file = e.target.files?.[0];
+        if (!file || !this.wine || !this.hass)
+            return;
+        e.target.value = "";
+        this._scanningLabel = true;
+        try {
+            const base64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(",")[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+            const result = await this.hass.callWS({
+                type: "wine_cellar/recognize_label",
+                image: base64,
+            });
+            if (result.error) {
+                alert(result.error);
+                return;
+            }
+            const r = result.result;
+            if (!r) {
+                alert("Could not identify the label. Try a clearer photo.");
+                return;
+            }
+            // Resize the captured photo to use as the bottle image
+            const thumbB64 = await this._resizeImageForStorage(base64);
+            const updates = { image_url: `data:image/jpeg;base64,${thumbB64}` };
+            if (r.name)
+                updates.name = r.name;
+            if (r.winery)
+                updates.winery = r.winery;
+            if (r.vintage)
+                updates.vintage = r.vintage;
+            if (r.type)
+                updates.type = r.type;
+            if (r.region)
+                updates.region = r.region;
+            if (r.country)
+                updates.country = r.country;
+            if (r.grape_variety)
+                updates.grape_variety = r.grape_variety;
+            if (r.description)
+                updates.description = r.description;
+            if (r.estimated_price)
+                updates.retail_price = r.estimated_price;
+            await this.hass.callWS({ type: "wine_cellar/update_wine", wine_id: this.wine.id, updates });
+            this.wine = { ...this.wine, ...updates };
+            this.dispatchEvent(new CustomEvent("wine-updated", { bubbles: true, composed: true }));
+        }
+        catch (err) {
+            console.error("Label scan failed", err);
+            alert("Label scan failed. Please try again.");
+        }
+        finally {
+            this._scanningLabel = false;
+        }
     }
     async _refreshFromVivino() {
         if (!this.wine || !this.hass)
@@ -2150,15 +2228,23 @@ let WineDetailDialog = class WineDetailDialog extends i {
                 ` : A}
 
                 ${this.mode === "cellar" ? b `
+                <input id="label-photo-input" type="file" accept="image/*" capture="environment"
+                  style="display:none" @change=${this._onLabelFileSelected} />
                 <div class="actions">
                   <button class="btn btn-primary" style="background:#8e24aa"
                     ?disabled=${this._refreshing} @click=${this._refreshFromVivino}>
                     ${this._refreshing ? "..." : "🍇 Vivino"}
                   </button>
                   ${this.hasGemini
-                ? b `<button class="btn btn-primary" style="background:#1565c0"
+                ? b `
+                      <button class="btn btn-primary" style="background:#1565c0"
                         ?disabled=${this._analyzing} @click=${this._analyzeWithAI}>
                         ${this._analyzing ? "..." : "🤖 AI Scan"}
+                      </button>
+                      <button class="btn btn-primary" style="background:#2e7d32"
+                        ?disabled=${this._scanningLabel} @click=${this._onScanLabel}
+                        title="Scan bottle label with camera to update photo and details">
+                        ${this._scanningLabel ? "..." : "📷 Scan Label"}
                       </button>`
                 : A}
                   <button class="btn btn-primary" style="background:#546e7a" @click=${this._onCopy}>📋 Copy</button>
@@ -2669,6 +2755,9 @@ __decorate([
 __decorate([
     r()
 ], WineDetailDialog.prototype, "_analyzing", void 0);
+__decorate([
+    r()
+], WineDetailDialog.prototype, "_scanningLabel", void 0);
 __decorate([
     r()
 ], WineDetailDialog.prototype, "_showRemoveConfirm", void 0);
@@ -8471,6 +8560,12 @@ let WineCellarCard = class WineCellarCard extends i {
                   <span class="stat-value">${this._stats.available_slots}</span>
                   available
                 </div>
+                ${this._stats.unplaced_bottles > 0
+                ? b `<div class="stat" style="color:#e65100" title="These bottles exist in your inventory but haven't been placed in a rack slot yet">
+                      <span class="stat-value">${this._stats.unplaced_bottles}</span>
+                      unplaced
+                    </div>`
+                : A}
                 ${this._stats.total_value
                 ? b `
                       <div class="stat">
@@ -8836,6 +8931,11 @@ let WineCellarCard = class WineCellarCard extends i {
           .hasGemini=${this._hasGemini}
           @close=${() => (this._showInventory = false)}
           @wine-updated=${() => this._loadData()}
+          @move-wine=${(e) => {
+            this._showInventory = false;
+            this._movingWine = e.detail.wine;
+            this._showToast(`Tap a cell to move "${e.detail.wine.name}"`);
+        }}
         ></inventory-dialog>
 
         <!-- Rack Settings Dialog -->

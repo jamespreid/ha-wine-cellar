@@ -21,6 +21,7 @@ export class WineDetailDialog extends LitElement {
   @state() private _saving = false;
   @state() private _refreshing = false;
   @state() private _analyzing = false;
+  @state() private _scanningLabel = false;
   @state() private _showRemoveConfirm = false;
   @property({ type: Boolean }) hasGemini = false;
 
@@ -630,6 +631,68 @@ export class WineDetailDialog extends LitElement {
     this._saving = false;
   }
 
+  private _resizeImageForStorage(base64: string, maxDim = 400, quality = 0.75): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality).split(",")[1]);
+      };
+      img.src = `data:image/jpeg;base64,${base64}`;
+    });
+  }
+
+  private _onScanLabel() {
+    const input = this.shadowRoot?.querySelector<HTMLInputElement>("#label-photo-input");
+    input?.click();
+  }
+
+  private async _onLabelFileSelected(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file || !this.wine || !this.hass) return;
+    (e.target as HTMLInputElement).value = "";
+    this._scanningLabel = true;
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const result = await this.hass.callWS({
+        type: "wine_cellar/recognize_label",
+        image: base64,
+      });
+      if (result.error) { alert(result.error); return; }
+      const r = result.result;
+      if (!r) { alert("Could not identify the label. Try a clearer photo."); return; }
+      // Resize the captured photo to use as the bottle image
+      const thumbB64 = await this._resizeImageForStorage(base64);
+      const updates: Record<string, any> = { image_url: `data:image/jpeg;base64,${thumbB64}` };
+      if (r.name) updates.name = r.name;
+      if (r.winery) updates.winery = r.winery;
+      if (r.vintage) updates.vintage = r.vintage;
+      if (r.type) updates.type = r.type;
+      if (r.region) updates.region = r.region;
+      if (r.country) updates.country = r.country;
+      if (r.grape_variety) updates.grape_variety = r.grape_variety;
+      if (r.description) updates.description = r.description;
+      if (r.estimated_price) updates.retail_price = r.estimated_price;
+      await this.hass.callWS({ type: "wine_cellar/update_wine", wine_id: this.wine.id, updates });
+      this.wine = { ...this.wine, ...updates };
+      this.dispatchEvent(new CustomEvent("wine-updated", { bubbles: true, composed: true }));
+    } catch (err) {
+      console.error("Label scan failed", err);
+      alert("Label scan failed. Please try again.");
+    } finally {
+      this._scanningLabel = false;
+    }
+  }
+
   private async _refreshFromVivino() {
     if (!this.wine || !this.hass) return;
     this._refreshing = true;
@@ -1042,15 +1105,23 @@ export class WineDetailDialog extends LitElement {
                 ` : nothing}
 
                 ${this.mode === "cellar" ? html`
+                <input id="label-photo-input" type="file" accept="image/*" capture="environment"
+                  style="display:none" @change=${this._onLabelFileSelected} />
                 <div class="actions">
                   <button class="btn btn-primary" style="background:#8e24aa"
                     ?disabled=${this._refreshing} @click=${this._refreshFromVivino}>
                     ${this._refreshing ? "..." : "🍇 Vivino"}
                   </button>
                   ${this.hasGemini
-                    ? html`<button class="btn btn-primary" style="background:#1565c0"
+                    ? html`
+                      <button class="btn btn-primary" style="background:#1565c0"
                         ?disabled=${this._analyzing} @click=${this._analyzeWithAI}>
                         ${this._analyzing ? "..." : "🤖 AI Scan"}
+                      </button>
+                      <button class="btn btn-primary" style="background:#2e7d32"
+                        ?disabled=${this._scanningLabel} @click=${this._onScanLabel}
+                        title="Scan bottle label with camera to update photo and details">
+                        ${this._scanningLabel ? "..." : "📷 Scan Label"}
                       </button>`
                     : nothing}
                   <button class="btn btn-primary" style="background:#546e7a" @click=${this._onCopy}>📋 Copy</button>

@@ -73,6 +73,8 @@ export interface CellarStats {
   total_bottles: number;
   total_capacity: number;
   available_slots: number;
+  placed_bottles: number;
+  unplaced_bottles: number;
   total_value: number;
   total_cost: number;
   by_type: Record<string, number>;

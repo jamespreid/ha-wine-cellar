@@ -996,6 +996,12 @@ export class WineCellarCard extends LitElement {
                   <span class="stat-value">${this._stats.available_slots}</span>
                   available
                 </div>
+                ${this._stats.unplaced_bottles > 0
+                  ? html`<div class="stat" style="color:#e65100" title="These bottles exist in your inventory but haven't been placed in a rack slot yet">
+                      <span class="stat-value">${this._stats.unplaced_bottles}</span>
+                      unplaced
+                    </div>`
+                  : nothing}
                 ${this._stats.total_value
                   ? html`
                       <div class="stat">
@@ -1378,6 +1384,11 @@ export class WineCellarCard extends LitElement {
           .hasGemini=${this._hasGemini}
           @close=${() => (this._showInventory = false)}
           @wine-updated=${() => this._loadData()}
+          @move-wine=${(e: CustomEvent) => {
+            this._showInventory = false;
+            this._movingWine = e.detail.wine;
+            this._showToast(`Tap a cell to move "${e.detail.wine.name}"`);
+          }}
         ></inventory-dialog>
 
         <!-- Rack Settings Dialog -->

@@ -261,20 +261,23 @@ class WineCellarStorage:
         """Get cellar statistics."""
         total_bottles = len(self.wines)
         total_capacity = 0
+        valid_cabinet_ids = {c["id"] for c in self.cabinets}
         for c in self.cabinets:
-            if c.get("type") == "grid":
-                storage_row_count = len(c.get("storage_rows", []))
-                grid_rows = c.get("rows", 0) - storage_row_count
-                total_capacity += max(0, grid_rows) * c.get("cols", 0) * c.get("depth", 1)
+            storage_row_count = len(c.get("storage_rows", []))
+            grid_rows = c.get("rows", 0) - storage_row_count
+            total_capacity += max(0, grid_rows) * c.get("cols", 0) * c.get("depth", 1)
         by_type: dict[str, int] = {}
         by_cabinet: dict[str, int] = {}
         total_value = 0.0
         total_cost = 0.0
+        placed_bottles = 0
         for wine in self.wines:
             wine_type = wine.get("type", "unknown")
             by_type[wine_type] = by_type.get(wine_type, 0) + 1
-            cab_id = wine.get("cabinet_id", "unassigned")
+            cab_id = wine.get("cabinet_id", "")
             by_cabinet[cab_id] = by_cabinet.get(cab_id, 0) + 1
+            if cab_id and cab_id in valid_cabinet_ids:
+                placed_bottles += 1
             # Use retail price (current value) if available, else purchase price
             price = wine.get("retail_price") or wine.get("price")
             if price and isinstance(price, (int, float)):
@@ -287,7 +290,9 @@ class WineCellarStorage:
         return {
             "total_bottles": total_bottles,
             "total_capacity": total_capacity,
-            "available_slots": total_capacity - total_bottles,
+            "placed_bottles": placed_bottles,
+            "unplaced_bottles": total_bottles - placed_bottles,
+            "available_slots": total_capacity - placed_bottles,
             "total_value": round(total_value, 2),
             "total_cost": round(total_cost, 2),
             "by_type": by_type,
